@@ -1,0 +1,92 @@
+package com.myorg.trading.service.trading;
+
+import com.myorg.trading.broker.api.*;
+import com.myorg.trading.broker.registry.BrokerRegistry;
+import com.myorg.trading.domain.entity.BrokerAccount;
+import com.myorg.trading.domain.entity.Order;
+import com.myorg.trading.domain.entity.OrderStatus;
+import com.myorg.trading.domain.repository.BrokerAccountRepository;
+import com.myorg.trading.domain.repository.OrderRepository;
+import com.myorg.trading.service.broker.BrokerAccountService;
+import jakarta.transaction.Transactional;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Core executor: maps Order -> BrokerOrderRequest, calls BrokerClient, updates Order entity.
+ */
+@Service
+public class OrderExecutionService {
+
+    private final OrderRepository orderRepository;
+    private final BrokerRegistry brokerRegistry;
+    private final BrokerAccountRepository brokerAccountRepository;
+    private final BrokerAccountService brokerAccountService;
+
+    public OrderExecutionService(OrderRepository orderRepository,
+                                 BrokerRegistry brokerRegistry,
+                                 BrokerAccountRepository brokerAccountRepository,
+                                 BrokerAccountService brokerAccountService) {
+        this.orderRepository = orderRepository;
+        this.brokerRegistry = brokerRegistry;
+        this.brokerAccountRepository = brokerAccountRepository;
+        this.brokerAccountService = brokerAccountService;
+    }
+
+    /**
+     * Synchronous (blocking) execution — used by Quartz Job.
+     */
+    @Transactional
+    public void executeOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElseThrow();
+        if (!OrderStatus.PENDING.equals(order.getStatus())) return;
+
+        BrokerAccount brokerAccount = brokerAccountRepository.findById(order.getBrokerAccountId()).orElseThrow();
+
+        String accountId = brokerAccount.getId().toString();
+
+        BrokerClient client = brokerRegistry.getById(brokerAccount.getBrokerId());
+
+        // prepare BrokerOrderRequest
+        BrokerOrderRequest brokerReq = BrokerOrderRequest.builder()
+                .clientOrderId("client-" + order.getId())
+                .symbol(order.getSymbol())
+                .side(OrderSide.valueOf(order.getSide()))
+                .quantity(order.getQuantity())
+                .price(order.getPrice())
+                .orderType(OrderType.valueOf(order.getOrderType()))
+                .timeInForce(TimeInForce.GTC)
+                .build();
+
+        try {
+            Mono<BrokerOrderResponse> respMono = client.placeOrder(accountId, brokerReq);
+            BrokerOrderResponse resp = respMono.onErrorResume(e -> {
+                // convert to failed response
+                return Mono.just(new BrokerOrderResponse(null, "REJECTED", e.getMessage(), null));
+            }).block();
+
+            if (resp != null && resp.getOrderId() != null) {
+                order.setBrokerOrderId(resp.getOrderId());
+                order.setStatus(OrderStatus.PLACED);
+                order.setExecutedAt(Instant.now());
+            } else {
+                order.setStatus(OrderStatus.FAILED);
+            }
+            orderRepository.save(order);
+        } catch (Exception e) {
+            order.setStatus(OrderStatus.FAILED);
+            orderRepository.save(order);
+            throw e;
+        }
+    }
+
+    /**
+     * Async execution for API usage — delegates to thread pool.
+     */
+    public void executeOrderAsync(Long orderId) {
+        CompletableFuture.runAsync(() -> executeOrder(orderId));
+    }
+}

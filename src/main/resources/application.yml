@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: trading-app
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/trading
+    username: myuser
+    password: Esoft@1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # Quartz scheduler configuration
+  quartz:
+    job-store-type: jdbc
+    properties:
+      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.jobStore.isClustered: true
+      org.quartz.scheduler.instanceId: AUTO
+
+# -------- Broker Configurations ---------
+
+broker:
+  dhan:
+    base-url: https://api.dhan.co          # example, replace with actual
+    api-key: ${DHAN_API_KEY}
+    auth-path: /auth/token
+    place-order-path: /v1/orders
+    order-status-path: /v1/orders/status
+    cancel-order-path: /v1/orders/cancel
+
+  fyers:
+    base-url: https://api.fyers.in
+    api-key: ${FYERS_API_KEY}
+    secret-key: ${FYERS_SECRET}
+    redirect-url: http://localhost:8080/auth/callback
+    auth-path: /api/v2/generate-token
+    place-order-path: /api/v2/orders
+    order-status-path: /api/v2/orders/status
+    cancel-order-path: /api/v2/orders/cancel
+
+  angelone:
+    base-url: https://api.angelone.in
+    client-id: ${ANGEL_CLIENT_ID}
+    client-secret: ${ANGEL_CLIENT_SECRET}
+    api-key: ${ANGEL_API_KEY}
+    auth-path: /oauth/token
+    place-order-path: /orders/place
+    order-status-path: /orders/status
+    cancel-order-path: /orders/cancel
+
+  app:
+    jwt:
+      secret: ${APP_JWT_SECRET}
+      ttl-seconds: 3600
