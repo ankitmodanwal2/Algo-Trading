@@ -25,18 +25,15 @@ spring:
   quartz:
     job-store-type: jdbc
     properties:
-      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
-      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
-      org.quartz.jobStore.tablePrefix: QRTZ_
-      # use the Spring Boot primary DataSource (logical name "default")
-      org.quartz.jobStore.dataSource: default
-
-      # tell Quartz that the named datasource "default" is provided by Spring
-      org.quartz.dataSource.default.provider: spring
-      org.quartz.dataSource.default.maxConnections: 10
-
-      org.quartz.jobStore.isClustered: true
-      org.quartz.jobStore.clusterCheckinInterval: 5000
+      org:
+        quartz:
+          jobStore:
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+            tablePrefix: QRTZ_
+            isClustered: true
+            clusterCheckinInterval: 5000
+            # IMPORTANT: Ensure the line "dataSource: default" is NOT here.
 
       org.quartz.threadPool.threadCount: 10
       org.quartz.threadPool.threadPriority: 5
@@ -72,7 +69,9 @@ broker:
     order-status-path: /orders/status
     cancel-order-path: /orders/cancel
 
-  app:
-    jwt:
-      secret: ${APP_JWT_SECRET}
-      ttl-seconds: 3600
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET:ThisIsAVeryLongSecretKeyThatIsAtLeast32BytesLongForSecurityRequirements12345}
+    ttl-seconds: 3600
+  crypto:
+    key: "9X5xG8/3zLq+1WdE4r6u7i8oP0tH2kL5vN9mJ3j4f6A="
