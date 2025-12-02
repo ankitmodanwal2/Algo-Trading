@@ -4,6 +4,7 @@ import com.myorg.trading.controller.dto.LinkBrokerRequest;
 import com.myorg.trading.domain.entity.BrokerAccount;
 import com.myorg.trading.service.broker.BrokerAccountService;
 import com.myorg.trading.broker.registry.BrokerRegistry;
+import com.myorg.trading.service.user.UserService; // <--- NEW IMPORT
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -17,10 +18,14 @@ public class BrokerController {
 
     private final BrokerAccountService brokerAccountService;
     private final BrokerRegistry brokerRegistry;
+    private final UserService userService; // <--- NEW FIELD
 
-    public BrokerController(BrokerAccountService brokerAccountService, BrokerRegistry brokerRegistry) {
+    public BrokerController(BrokerAccountService brokerAccountService,
+                            BrokerRegistry brokerRegistry,
+                            UserService userService) { // <--- NEW ARGUMENT
         this.brokerAccountService = brokerAccountService;
         this.brokerRegistry = brokerRegistry;
+        this.userService = userService;
     }
 
     /**
@@ -32,13 +37,11 @@ public class BrokerController {
     }
 
     /**
-     * Link a broker account. Frontend should POST credentials securely (HTTPS).
-     * credentialsJson is a JSON string containing broker-specific fields (apiKey, secret, etc.)
+     * Link a broker account.
      */
     @PostMapping("/link")
     public ResponseEntity<?> linkBroker(@AuthenticationPrincipal UserDetails user,
                                         @RequestBody LinkBrokerRequest req) {
-        // map to BrokerAccount entity and encrypt credentials in BrokerAccountService
         BrokerAccount acc = BrokerAccount.builder()
                 .userId(getUserIdFromPrincipal(user))
                 .brokerId(req.getBrokerId())
@@ -49,9 +52,6 @@ public class BrokerController {
         return ResponseEntity.ok(saved);
     }
 
-    /**
-     * List linked broker accounts for current user.
-     */
     @GetMapping("/linked")
     public ResponseEntity<List<BrokerAccount>> listLinked(@AuthenticationPrincipal UserDetails user) {
         Long userId = getUserIdFromPrincipal(user);
@@ -59,24 +59,14 @@ public class BrokerController {
         return ResponseEntity.ok(list);
     }
 
-    /**
-     * Unlink a broker account
-     */
     @DeleteMapping("/{accountId}")
     public ResponseEntity<?> unlink(@AuthenticationPrincipal UserDetails user, @PathVariable Long accountId) {
-        // TODO: authorize that this account belongs to user
         brokerAccountService.delete(accountId);
         return ResponseEntity.noContent().build();
     }
 
     private Long getUserIdFromPrincipal(UserDetails user) {
-        // This helper assumes username is unique; lookup userId from username if needed.
-        // For now we guess username equals id if numeric; adapt to your auth model.
-        try {
-            return Long.parseLong(user.getUsername());
-        } catch (NumberFormatException ex) {
-            // In many implementations username != userId. If so, you should inject UserRepository and map username->id.
-            throw new IllegalStateException("Principal username is not numeric. Adapt BrokerController.getUserIdFromPrincipal()");
-        }
+        // FIX: Look up ID from database instead of parsing username
+        return userService.getUserIdForUsername(user.getUsername());
     }
 }

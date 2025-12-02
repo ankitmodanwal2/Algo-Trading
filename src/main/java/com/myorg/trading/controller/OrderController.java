@@ -8,6 +8,7 @@ import com.myorg.trading.domain.entity.OrderStatus;
 import com.myorg.trading.domain.entity.ScheduledOrder;
 import com.myorg.trading.service.trading.OrderService;
 import com.myorg.trading.domain.repository.OrderRepository;
+import com.myorg.trading.service.user.UserService; // <--- NEW IMPORT
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -23,16 +24,19 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderRepository orderRepository;
+    private final UserService userService; // <--- NEW FIELD
 
-    public OrderController(OrderService orderService, OrderRepository orderRepository) {
+    public OrderController(OrderService orderService,
+                           OrderRepository orderRepository,
+                           UserService userService) { // <--- NEW ARGUMENT
         this.orderService = orderService;
         this.orderRepository = orderRepository;
+        this.userService = userService;
     }
 
     @PostMapping("/place")
     public ResponseEntity<PlaceOrderResponse> placeOrder(@AuthenticationPrincipal UserDetails user,
                                                          @Valid @RequestBody PlaceOrderRequest req) {
-        // Map request -> Order entity
         Order o = Order.builder()
                 .userId(getUserIdFromPrincipal(user))
                 .brokerAccountId(req.getBrokerAccountId())
@@ -45,7 +49,6 @@ public class OrderController {
                 .build();
 
         Order saved = orderService.createOrder(o);
-        // execute asynchronously
         orderService.placeOrderNow(saved.getId());
 
         return ResponseEntity.ok(new PlaceOrderResponse(saved.getId(), "CREATED"));
@@ -54,7 +57,6 @@ public class OrderController {
     @PostMapping("/schedule")
     public ResponseEntity<?> scheduleOrder(@AuthenticationPrincipal UserDetails user,
                                            @Valid @RequestBody ScheduleOrderRequest req) throws Exception {
-        // create order entity, persist then schedule
         Order o = Order.builder()
                 .userId(getUserIdFromPrincipal(user))
                 .brokerAccountId(req.getBrokerAccountId())
@@ -82,15 +84,11 @@ public class OrderController {
     @GetMapping("/{id}")
     public ResponseEntity<Order> getOrder(@AuthenticationPrincipal UserDetails user, @PathVariable Long id) {
         Order o = orderRepository.findById(id).orElseThrow();
-        // TODO: verify user owns this order
         return ResponseEntity.ok(o);
     }
 
     private Long getUserIdFromPrincipal(UserDetails user) {
-        try {
-            return Long.parseLong(user.getUsername());
-        } catch (NumberFormatException ex) {
-            throw new IllegalStateException("Principal username is not numeric. Adapt this method.");
-        }
+        // FIX: Look up ID from database
+        return userService.getUserIdForUsername(user.getUsername());
     }
 }
