@@ -1,13 +1,12 @@
 package com.myorg.trading.web;
 
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,9 +27,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "access_denied", "message", ex.getMessage()));
     }
 
+    // --- NEW: Trap Broker Errors ---
+    @ExceptionHandler(WebClientResponseException.class)
+    public ResponseEntity<?> handleBrokerError(WebClientResponseException ex) {
+        // Log the error here in a real app
+        System.err.println("Broker API Error: " + ex.getResponseBodyAsString());
+
+        // CRITICAL: Return 500 (Internal Server Error) instead of ex.getStatusCode()
+        // If we return 401 here, the Frontend will log the user out.
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                        "error", "broker_error",
+                        "status", ex.getStatusCode().value(),
+                        "message", "Broker rejected request. Check backend logs."
+                ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneric(Exception ex) {
-        // log exception in real app
+        ex.printStackTrace(); // Print stack trace to console for debugging
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "internal_error", "message", ex.getMessage()));
     }
 

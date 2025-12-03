@@ -49,16 +49,21 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // --- FIX 1: Enable CORS here ---
+                // Enable CORS using the bean defined below
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(entryPoint))
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // --- FIX 2: Explicitly allow register endpoint to avoid 403 ---
+                        // Public endpoints
                         .requestMatchers("/register", "/api/auth/**", "/login").permitAll()
                         .requestMatchers(SecurityConstants.AUTH_BASE + "/**").permitAll()
                         .requestMatchers("/public/**").permitAll()
+                        // Allow WebSocket handshake (Critical fix for 401 errors on /ws)
+                        .requestMatchers("/ws/**").permitAll()
+                        // Swagger UI (Optional, good for dev)
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        // All other requests must be authenticated
                         .anyRequest().authenticated()
                 );
 
@@ -66,22 +71,24 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // --- FIX 3: Define the CORS Configuration Bean ---
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // ALLOW YOUR FRONTEND URL
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        // Allow both standard frontend ports (5173 is default, 5174 is fallback)
+        configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174"));
 
-        // Allow common HTTP methods
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        // Allow standard HTTP methods
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"));
 
-        // Allow all headers (needed for JWT and Content-Type)
-        configuration.setAllowedHeaders(List.of("*"));
+        // Allow headers typically sent by Axios/Browser
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
 
-        // Allow credentials (cookies/auth headers)
+        // Allow credentials (cookies, authorization headers)
         configuration.setAllowCredentials(true);
+
+        // Expose headers if needed by frontend
+        configuration.setExposedHeaders(List.of("Authorization"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

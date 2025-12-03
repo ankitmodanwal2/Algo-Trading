@@ -3,6 +3,7 @@ package com.myorg.trading.broker.api;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Set;
 
 public interface BrokerClient {
@@ -11,7 +12,8 @@ public interface BrokerClient {
 
     Set<BrokerCapability> capabilities();
 
-    // Multi-account aware methods
+    // --- Multi-account aware methods ---
+
     default Mono<BrokerAuthToken> authenticateIfNeeded(String accountId) {
         return Mono.error(new UnsupportedOperationException(
                 "authenticateIfNeeded() not implemented for broker: " + getBrokerId()));
@@ -32,13 +34,23 @@ public interface BrokerClient {
                 "cancelOrder() not implemented for broker: " + getBrokerId()));
     }
 
+    /**
+     * NEW: Fetch open positions (Netwise) for the specific account.
+     */
+    default Mono<List<BrokerPosition>> getPositions(String accountId) {
+        return Mono.error(new UnsupportedOperationException(
+                "getPositions() not implemented for broker: " + getBrokerId()));
+    }
+
     default Flux<MarketDataTick> marketDataStream(String accountId, String instrumentToken) {
         return Flux.error(new UnsupportedOperationException(
                 "marketDataStream() not implemented for broker: " + getBrokerId()));
     }
 
 
-    // Backward compatibility — old methods fallback to "default" account
+    // --- Backward compatibility (Single User Mode) ---
+    // These methods fallback to a "default" account if the specific accountId isn't provided.
+
     default Mono<BrokerAuthToken> authenticateIfNeeded() {
         return authenticateIfNeeded("default");
     }
@@ -57,5 +69,8 @@ public interface BrokerClient {
 
     default Flux<MarketDataTick> marketDataStream(String instrumentToken) {
         return marketDataStream("default", instrumentToken);
+    }
+    default Mono<Boolean> validateCredentials(String rawCredentialsJson) {
+        return Mono.just(true); // Default to true if not implemented
     }
 }

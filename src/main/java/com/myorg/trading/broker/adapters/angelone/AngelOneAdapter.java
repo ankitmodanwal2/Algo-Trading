@@ -1,18 +1,23 @@
 package com.myorg.trading.broker.adapters.angelone;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myorg.trading.broker.api.*;
 import com.myorg.trading.broker.model.AngelOneCredentials;
 import com.myorg.trading.broker.token.TokenStore;
 import com.myorg.trading.config.properties.AngelOneProperties;
 import com.myorg.trading.service.broker.BrokerAccountService;
-import com.myorg.trading.util.CryptoUtil; // <--- IMPT: Import this
+import com.myorg.trading.util.CryptoUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.HttpHeaders;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -25,7 +30,7 @@ public class AngelOneAdapter implements BrokerClient {
     private final TokenStore<AngelAuthResponse> tokenStore;
     private final BrokerAccountService brokerAccountService;
     private final ObjectMapper objectMapper;
-    private final AngelOneWebSocketClient wsClient; // <--- IMPT: Inject WebSocket Client
+    private final AngelOneWebSocketClient wsClient;
 
     public AngelOneAdapter(WebClient.Builder webClientBuilder,
                            AngelOneProperties props,
@@ -62,19 +67,24 @@ public class AngelOneAdapter implements BrokerClient {
                 .flatMap(opt -> opt.map(Mono::just).orElse(Mono.error(new IllegalArgumentException("No credentials found for account: " + accountId))))
                 .flatMap(json -> {
                     try {
-                        // 1. Parse JSON
                         AngelOneCredentials creds = objectMapper.readValue(json, AngelOneCredentials.class);
 
-                        // 2. GENERATE TOTP (Fixing the hardcoded value)
+                        // --- DEBUG LOGGING START ---
+                        log.info("--- LOGIN ATTEMPT (Account {}) ---", accountId);
+                        log.info("Client Code: {}", creds.getClientCode());
+                        log.info("API Key Length: {} (Should be > 30 chars)", creds.getApiKey() != null ? creds.getApiKey().length() : 0);
+                        log.info("TOTP Key Length: {} (Should be ~16-32 chars)", creds.getTotpKey() != null ? creds.getTotpKey().length() : 0);
+                        // ----------------------------
+
                         String totp = CryptoUtil.generateTotp(creds.getTotpKey());
+                        log.info("Generated TOTP: {}", totp); // Check if this matches your phone app!
 
                         Map<String, Object> loginBody = Map.of(
                                 "clientcode", creds.getClientCode(),
                                 "password", creds.getPassword(),
-                                "totp", totp // <--- Sending real TOTP
+                                "totp", totp
                         );
 
-                        // 3. Call Broker API
                         return webClient.post()
                                 .uri(props.getAuthPath())
                                 .header("Content-Type", "application/json")
@@ -92,15 +102,14 @@ public class AngelOneAdapter implements BrokerClient {
                                         return Mono.error(new RuntimeException("Login failed: " + response.getMessage()));
                                     }
                                     response.markObtainedNow();
-
-                                    // 4. Connect WebSocket immediately (Fixing the missing link)
+                                    log.info("LOGIN SUCCESSFUL! Connecting WebSocket...");
                                     wsClient.connect(response.getAccessToken(), creds.getApiKey(), creds.getClientCode());
-
                                     return tokenStore.saveToken(accountId, response).thenReturn(response);
                                 });
 
                     } catch (Exception e) {
-                        return Mono.error(new RuntimeException("Login Flow Failed", e));
+                        log.error("LOGIN FAILED: {}", e.getMessage());
+                        return Mono.error(new RuntimeException("Login Flow Failed: " + e.getMessage(), e));
                     }
                 });
     }
@@ -112,7 +121,7 @@ public class AngelOneAdapter implements BrokerClient {
         return authenticateAccount(accountId)
                 .flatMap(auth -> {
                     return Mono.fromCallable(() -> brokerAccountService.readDecryptedCredentials(Long.valueOf(accountId)))
-                            .map(opt -> opt.get())
+                            .flatMap(opt -> opt.map(Mono::just).orElse(Mono.error(new IllegalArgumentException("No credentials found for account: " + accountId))))
                             .map(json -> {
                                 try { return objectMapper.readValue(json, AngelOneCredentials.class).getApiKey(); }
                                 catch(Exception e) { throw new RuntimeException(e); }
@@ -130,19 +139,67 @@ public class AngelOneAdapter implements BrokerClient {
                 });
     }
 
+    // --- Position Fetching (NEW) ---
+
+    @Override
+    public Mono<List<BrokerPosition>> getPositions(String accountId) {
+        return authenticateAccount(accountId)
+                .flatMap(auth -> {
+                    return Mono.fromCallable(() -> brokerAccountService.readDecryptedCredentials(Long.valueOf(accountId)))
+                            .flatMap(opt -> opt.map(Mono::just).orElse(Mono.error(new IllegalArgumentException("No credentials found for account: " + accountId))))
+                            .map(json -> {
+                                try { return objectMapper.readValue(json, AngelOneCredentials.class).getApiKey(); }
+                                catch(Exception e) { throw new RuntimeException(e); }
+                            })
+                            .flatMap(apiKey ->
+                                    webClient.get()
+                                            .uri("https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/getPosition")
+                                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + auth.getAccessToken())
+                                            .header("X-PrivateKey", apiKey)
+                                            .header("Accept", "application/json")
+                                            .header("X-User-Agent", "Java/1.0")
+                                            .header("X-Client-LocalIP", "127.0.0.1")
+                                            .header("X-Client-PublicIP", "127.0.0.1")
+                                            .header("X-MACAddress", "mac_address")
+                                            .retrieve()
+                                            .bodyToMono(JsonNode.class)
+                                            .map(rootNode -> {
+                                                JsonNode dataNode = rootNode.path("data");
+                                                if (dataNode.isMissingNode() || !dataNode.isArray()) {
+                                                    return List.<BrokerPosition>of();
+                                                }
+
+                                                List<BrokerPosition> positions = new ArrayList<>();
+                                                for (JsonNode node : dataNode) {
+                                                    positions.add(BrokerPosition.builder()
+                                                            .symbol(node.path("tradingsymbol").asText())
+                                                            .productType(node.path("producttype").asText())
+                                                            .netQuantity(new BigDecimal(node.path("netqty").asText("0")))
+                                                            .avgPrice(new BigDecimal(node.path("avgnetprice").asText("0")))
+                                                            .ltp(new BigDecimal(node.path("ltp").asText("0")))
+                                                            .pnl(new BigDecimal(node.path("pnl").asText("0")))
+                                                            .buyQty(new BigDecimal(node.path("buyqty").asText("0")))
+                                                            .sellQty(new BigDecimal(node.path("sellqty").asText("0")))
+                                                            .build());
+                                                }
+                                                return positions;
+                                            })
+                            );
+                });
+    }
+
     // --- Mappers ---
 
     private Object mapToAngelPayload(BrokerOrderRequest req) {
-        // Map.of() has a limit of 10 entries. We use HashMap for >10 entries.
-        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        Map<String, Object> payload = new HashMap<>();
 
-        payload.put("variety", "NORMAL"); // or AMO / STOPLOSS
+        payload.put("variety", "NORMAL");
         payload.put("tradingsymbol", req.getSymbol());
         payload.put("symboltoken", req.getMeta() != null ? req.getMeta().get("token") : "3045");
-        payload.put("transactiontype", req.getSide().name()); // BUY / SELL
+        payload.put("transactiontype", req.getSide().name());
         payload.put("exchange", "NSE");
-        payload.put("ordertype", req.getOrderType().name()); // MARKET / LIMIT
-        payload.put("producttype", "INTRADAY"); // CARRYFORWARD / MARGIN / INTRADAY
+        payload.put("ordertype", req.getOrderType().name());
+        payload.put("producttype", "INTRADAY");
         payload.put("duration", "DAY");
         payload.put("price", req.getPrice());
         payload.put("squareoff", "0");
@@ -155,5 +212,45 @@ public class AngelOneAdapter implements BrokerClient {
     private BrokerOrderResponse toBrokerOrderResponse(AngelOrderResponse r) {
         if (r == null) return new BrokerOrderResponse(null, "REJECTED", "empty", Map.of());
         return new BrokerOrderResponse(r.getOrderId(), r.getStatus(), r.getMessage(), r.getRaw());
+    }
+    @Override
+    public Mono<Boolean> validateCredentials(String rawCredentialsJson) {
+        return Mono.just(rawCredentialsJson)
+                .flatMap(json -> {
+                    try {
+                        // 1. Parse the credentials passed from UI
+                        AngelOneCredentials creds = objectMapper.readValue(json, AngelOneCredentials.class);
+                        String totp = CryptoUtil.generateTotp(creds.getTotpKey());
+
+                        Map<String, Object> loginBody = Map.of(
+                                "clientcode", creds.getClientCode(),
+                                "password", creds.getPassword(),
+                                "totp", totp
+                        );
+
+                        // 2. Try Login (Stateless call)
+                        return webClient.post()
+                                .uri(props.getAuthPath())
+                                .header("Content-Type", "application/json")
+                                .header("Accept", "application/json")
+                                .header("X-PrivateKey", creds.getApiKey())
+                                .header("X-User-Agent", "Java/1.0")
+                                .header("X-Client-LocalIP", "127.0.0.1")
+                                .header("X-Client-PublicIP", "127.0.0.1")
+                                .header("X-MACAddress", "mac_address")
+                                .bodyValue(loginBody)
+                                .retrieve()
+                                .bodyToMono(AngelAuthResponse.class)
+                                .map(response -> {
+                                    if (response.getAccessToken() == null) {
+                                        throw new RuntimeException("Validation Failed: " + response.getMessage());
+                                    }
+                                    return true; // Login Success!
+                                });
+
+                    } catch (Exception e) {
+                        return Mono.error(new RuntimeException("Invalid Credentials: " + e.getMessage()));
+                    }
+                });
     }
 }
