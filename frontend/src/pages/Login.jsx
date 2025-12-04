@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // <--- Import useEffect
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/useAuthStore';
@@ -8,24 +8,31 @@ import toast from 'react-hot-toast';
 const Login = () => {
     const { register, handleSubmit, formState: { errors } } = useForm();
     const login = useAuthStore((state) => state.login);
+    const logout = useAuthStore((state) => state.logout); // <--- Import logout
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(false);
 
+    // --- NEW: CLEANUP ON MOUNT ---
+    useEffect(() => {
+        // Whenever user lands on Login page, wipe everything.
+        logout();
+        localStorage.removeItem('authToken');
+        console.log("Login Page Loaded: Session Cleared.");
+    }, []);
+    // -----------------------------
+
     const onSubmit = async (data) => {
         setIsLoading(true);
-        // Debug log to check Origin
-        console.log("Login attempt from origin:", window.location.origin);
-
         const success = await login(data.username, data.password);
 
         if (success) {
             toast.success('Access Granted', {
                 style: { background: '#10b981', color: '#fff' },
-                iconTheme: { primary: '#fff', secondary: '#10b981' },
             });
-            navigate('/');
+            // Small delay to ensure storage writes
+            setTimeout(() => navigate('/'), 100);
         } else {
-            toast.error('Connection Refused. Check console for CORS/Network errors.', {
+            toast.error('Invalid Credentials', {
                 style: { background: '#ef4444', color: '#fff' },
             });
         }
@@ -34,9 +41,9 @@ const Login = () => {
 
     return (
         <div className="min-h-screen flex bg-trade-bg font-sans">
-            {/* Left Panel - Brand & Visuals (Hidden on Mobile) */}
+            {/* ... (Keep the rest of your UI JSX exactly the same as before) ... */}
+            {/* Left Panel */}
             <div className="hidden lg:flex w-1/2 bg-trade-panel relative overflow-hidden items-center justify-center border-r border-trade-border">
-                {/* Ambient Background Effects */}
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-900/20 to-trade-bg z-0"></div>
                 <div className="absolute w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] -top-20 -left-20 animate-pulse"></div>
                 <div className="absolute w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] bottom-0 right-0"></div>
@@ -78,23 +85,12 @@ const Login = () => {
             {/* Right Panel - Login Form */}
             <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative bg-trade-bg">
                 <div className="max-w-[420px] w-full">
-                    {/* Mobile Header */}
-                    <div className="text-center mb-10 lg:hidden">
-                        <div className="flex justify-center mb-4">
-                            <div className="p-3 bg-blue-600 rounded-xl">
-                                <Activity size={24} className="text-white" />
-                            </div>
-                        </div>
-                        <h2 className="text-2xl font-bold text-white">AlgoTrade</h2>
-                    </div>
-
                     <div className="mb-10">
                         <h3 className="text-3xl font-bold text-white mb-3">Welcome Back</h3>
                         <p className="text-slate-400">Enter your credentials to access the trading terminal.</p>
                     </div>
 
                     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                        {/* Username Input */}
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-300 ml-1">Username</label>
                             <div className="relative group">
@@ -111,7 +107,6 @@ const Login = () => {
                             {errors.username && <p className="text-red-400 text-xs ml-1 font-medium">{errors.username.message}</p>}
                         </div>
 
-                        {/* Password Input */}
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-300 ml-1">Password</label>
                             <div className="relative group">
@@ -128,17 +123,6 @@ const Login = () => {
                             {errors.password && <p className="text-red-400 text-xs ml-1 font-medium">{errors.password.message}</p>}
                         </div>
 
-                        <div className="flex items-center justify-between text-sm pt-2">
-                            <label className="flex items-center gap-2 cursor-pointer text-slate-400 hover:text-slate-300 transition-colors">
-                                <input
-                                    type="checkbox"
-                                    className="w-4 h-4 rounded border-slate-600 bg-trade-panel text-blue-500 focus:ring-offset-0 focus:ring-blue-500/20"
-                                />
-                                Remember me
-                            </label>
-                            <a href="#" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">Forgot password?</a>
-                        </div>
-
                         <button
                             type="submit"
                             disabled={isLoading}
@@ -153,13 +137,6 @@ const Login = () => {
                             )}
                         </button>
                     </form>
-
-                    <p className="mt-8 text-center text-sm text-slate-500">
-                        Protected by reCAPTCHA and subject to the
-                        <a href="#" className="text-slate-400 hover:text-white mx-1 underline">Privacy Policy</a>
-                        and
-                        <a href="#" className="text-slate-400 hover:text-white mx-1 underline">Terms of Service</a>.
-                    </p>
                 </div>
             </div>
         </div>

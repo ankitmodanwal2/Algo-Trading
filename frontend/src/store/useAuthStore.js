@@ -11,9 +11,12 @@ const useAuthStore = create((set) => ({
             const res = await api.post('/auth/login', { username, password });
             const { token } = res.data;
 
-            localStorage.setItem('authToken', token);
-            set({ isAuthenticated: true, token, user: { username } });
-            return true;
+            if (token) {
+                localStorage.setItem('authToken', token);
+                set({ isAuthenticated: true, token, user: { username } });
+                return true;
+            }
+            return false;
         } catch (error) {
             console.error('Login failed', error);
             return false;

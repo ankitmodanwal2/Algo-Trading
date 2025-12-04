@@ -2,6 +2,7 @@ package com.myorg.trading.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod; // <--- Import this
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -49,21 +50,22 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // Enable CORS using the bean defined below
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(entryPoint))
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints
+                        // 1. Allow all OPTIONS requests (Critical for CORS Preflight)
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // 2. Public endpoints
                         .requestMatchers("/register", "/api/auth/**", "/login").permitAll()
                         .requestMatchers(SecurityConstants.AUTH_BASE + "/**").permitAll()
                         .requestMatchers("/public/**").permitAll()
-                        // Allow WebSocket handshake (Critical fix for 401 errors on /ws)
                         .requestMatchers("/ws/**").permitAll()
-                        // Swagger UI (Optional, good for dev)
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        // All other requests must be authenticated
+
+                        // 3. Secured endpoints
                         .anyRequest().authenticated()
                 );
 
@@ -74,22 +76,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-
-        // Allow both standard frontend ports (5173 is default, 5174 is fallback)
         configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174"));
-
-        // Allow standard HTTP methods
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"));
-
-        // Allow headers typically sent by Axios/Browser
+        // Ensure Authorization header is allowed
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
-
-        // Allow credentials (cookies, authorization headers)
         configuration.setAllowCredentials(true);
-
-        // Expose headers if needed by frontend
-        configuration.setExposedHeaders(List.of("Authorization"));
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

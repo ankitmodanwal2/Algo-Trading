@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
@@ -14,32 +14,48 @@ const LinkBrokerModal = ({ isOpen, onClose, onSuccess }) => {
     const onSubmit = async (data) => {
         setIsSubmitting(true);
         try {
-            // 1. Construct Credentials JSON
-            const credentials = {
-                apiKey: data.apiKey,
-                clientCode: data.clientCode,
-                password: data.password,
-                totpKey: data.totpKey
-            };
+            let credentials = {};
+
+            // 1. Build Broker-Specific Credentials Object
+            if (selectedBroker === 'angelone') {
+                credentials = {
+                    apiKey: data.apiKey,
+                    clientCode: data.clientCode,
+                    password: data.password,
+                    totpKey: data.totpKey
+                };
+            } else if (selectedBroker === 'dhan') {
+                // Dhan uses different field names in the DTO
+                credentials = {
+                    clientId: data.clientCode, // Reuse clientCode input for Client ID
+                    accessToken: data.apiKey   // Reuse apiKey input for Access Token
+                };
+            } else if (selectedBroker === 'fyers') {
+                // Placeholder for Fyers structure
+                credentials = {
+                    appId: data.clientCode,
+                    accessToken: data.apiKey
+                };
+            }
 
             // 2. Construct Payload
             const payload = {
                 brokerId: selectedBroker,
-                metadataJson: JSON.stringify({ name: data.name || 'My Account' }),
+                metadataJson: JSON.stringify({ name: data.name || 'Trading Account' }),
                 credentialsJson: JSON.stringify(credentials)
             };
 
-            // 3. Send to Backend
+            // 3. Send to Backend (Backend handles validation)
             await api.post('/brokers/link', payload);
 
-            toast.success('Broker Linked Successfully!');
+            toast.success(`${selectedBroker.toUpperCase()} Linked Successfully!`);
             reset();
-            onSuccess(); // Refresh parent list
+            onSuccess(); // Refresh the list on parent page
             onClose();
+
         } catch (err) {
-            // Handle the validation error returned by the backend
-            const msg = err.response?.data?.message || 'Invalid Credentials. Please check API Key/TOTP.';
-            toast.error(msg, { duration: 5000 });
+            const msg = err.response?.data?.message || 'Connection Failed. Check Credentials.';
+            toast.error(msg, { duration: 4000 });
         } finally {
             setIsSubmitting(false);
         }
@@ -65,21 +81,24 @@ const LinkBrokerModal = ({ isOpen, onClose, onSuccess }) => {
                         <label className="block text-sm text-trade-muted mb-2">Select Broker</label>
                         <select
                             value={selectedBroker}
-                            onChange={(e) => setSelectedBroker(e.target.value)}
+                            onChange={(e) => {
+                                setSelectedBroker(e.target.value);
+                                reset(); // Clear form when switching brokers
+                            }}
                             className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white focus:border-trade-primary outline-none"
                         >
                             <option value="angelone">Angel One</option>
+                            <option value="dhan">Dhan</option>
                             <option value="fyers">Fyers (Coming Soon)</option>
-                            <option value="dhan">Dhan (Coming Soon)</option>
                         </select>
                     </div>
 
-                    {/* Dynamic Fields for Angel One */}
+                    {/* --- ANGEL ONE FIELDS --- */}
                     {selectedBroker === 'angelone' && (
-                        <div className="space-y-4">
+                        <div className="space-y-4 animate-fade-in">
                             <div>
-                                <label className="block text-sm text-trade-muted mb-1">Account Name (Alias)</label>
-                                <input {...register('name')} placeholder="e.g. My Primary Account" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
+                                <label className="block text-sm text-trade-muted mb-1">Account Alias</label>
+                                <input {...register('name')} placeholder="e.g. My Main Account" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -88,7 +107,7 @@ const LinkBrokerModal = ({ isOpen, onClose, onSuccess }) => {
                                     <input {...register('clientCode', { required: true })} placeholder="A12345" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
                                 </div>
                                 <div>
-                                    <label className="block text-sm text-trade-muted mb-1">MPIN / Password</label>
+                                    <label className="block text-sm text-trade-muted mb-1">MPIN</label>
                                     <input type="password" {...register('password', { required: true })} placeholder="****" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
                                 </div>
                             </div>
@@ -96,12 +115,39 @@ const LinkBrokerModal = ({ isOpen, onClose, onSuccess }) => {
                             <div>
                                 <label className="block text-sm text-trade-muted mb-1">TOTP Secret (Base32)</label>
                                 <input {...register('totpKey', { required: true })} placeholder="JBSWY3..." className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
-                                <p className="text-xs text-trade-muted mt-1">Scan QR code to get this secret key.</p>
                             </div>
 
                             <div>
                                 <label className="block text-sm text-trade-muted mb-1">SmartAPI Key</label>
-                                <input {...register('apiKey', { required: true })} placeholder="Long UUID String" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
+                                <input {...register('apiKey', { required: true })} placeholder="UUID String" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- DHAN FIELDS --- */}
+                    {selectedBroker === 'dhan' && (
+                        <div className="space-y-4 animate-fade-in">
+                            <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded text-sm text-blue-200">
+                                Dhan integration requires an Access Token valid for 30 days.
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-trade-muted mb-1">Account Alias</label>
+                                <input {...register('name')} placeholder="Dhan Portfolio" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-trade-muted mb-1">Client ID</label>
+                                <input {...register('clientCode', { required: true })} placeholder="10000001" className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white" />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-trade-muted mb-1">Access Token</label>
+                                <textarea
+                                    {...register('apiKey', { required: true })}
+                                    placeholder="Paste the long JWT token from Dhan Web here..."
+                                    className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 text-white h-24 text-xs font-mono"
+                                />
                             </div>
                         </div>
                     )}
@@ -119,7 +165,7 @@ const LinkBrokerModal = ({ isOpen, onClose, onSuccess }) => {
                             disabled={isSubmitting}
                             className="flex-1 bg-trade-primary hover:bg-blue-600 text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50 flex justify-center items-center gap-2"
                         >
-                            {isSubmitting ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Connect & Verify'}
+                            {isSubmitting ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Connect'}
                         </button>
                     </div>
                 </form>

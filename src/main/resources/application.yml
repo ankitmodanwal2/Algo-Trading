@@ -51,11 +51,14 @@ spring:
 broker:
   dhan:
     base-url: https://api.dhan.co
+    # These are placeholders, validation uses what's passed from UI
     api-key: ${DHAN_API_KEY}
-    auth-path: /auth/token
-    place-order-path: /v1/orders
-    order-status-path: /v1/orders/status
-    cancel-order-path: /v1/orders/cancel
+
+    # Dhan Official Endpoints
+    auth-path: /fund-limits  # Used for validation check
+    place-order-path: /orders
+    order-status-path: /orders
+    cancel-order-path: /orders
 
   fyers:
     base-url: https://api.fyers.in

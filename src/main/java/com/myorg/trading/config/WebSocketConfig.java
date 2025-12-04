@@ -17,7 +17,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // client connects to /ws endpoint (allowSockJS as fallback)
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+        // 1. For Native Clients (React @stomp/stompjs) - NO SockJS
+        registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns("*");
+
+        // 2. For Legacy Clients (Optional fallback)
+        registry.addEndpoint("/ws-sockjs")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
     }
 }
