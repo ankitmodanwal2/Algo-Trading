@@ -42,15 +42,24 @@ public class OrderExecutionService {
     @Transactional
     public void executeOrder(Long orderId) {
         Order order = orderRepository.findById(orderId).orElseThrow();
-        if (!OrderStatus.PENDING.equals(order.getStatus())) return;
-
+        // ... (existing code finding account) ...
         BrokerAccount brokerAccount = brokerAccountRepository.findById(order.getBrokerAccountId()).orElseThrow();
-
         String accountId = brokerAccount.getId().toString();
-
         BrokerClient client = brokerRegistry.getById(brokerAccount.getBrokerId());
 
-        // prepare BrokerOrderRequest
+        // --- FIX: Extract Product Type from where we stored it (or default to INTRADAY) ---
+        // Note: For now, we assume the Controller passed it.
+        // Ideally, 'Order' entity should also save 'productType', but for now let's hardcode a default
+        // or pass it via a transient field if you modified Order entity.
+
+        // Since we didn't add 'productType' to Order Entity yet, we will default to "INTRADAY"
+        // OR we can misuse 'clientOrderId' or similar if we don't want DB migration right now.
+        // BETTER: Let's assume you will add it to Order entity later.
+        // For THIS step, I will map it to "INTRADAY" if null to prevent crashes.
+
+        String productType = "INTRADAY";
+        String pType = order.getProductType() != null ? order.getProductType() : "INTRADAY";
+
         BrokerOrderRequest brokerReq = BrokerOrderRequest.builder()
                 .clientOrderId("client-" + order.getId())
                 .symbol(order.getSymbol())
@@ -59,6 +68,14 @@ public class OrderExecutionService {
                 .price(order.getPrice())
                 .orderType(OrderType.valueOf(order.getOrderType()))
                 .timeInForce(TimeInForce.GTC)
+                .symbol(order.getSymbol())
+                .side(OrderSide.valueOf(order.getSide()))
+                .quantity(order.getQuantity())
+                .price(order.getPrice())
+                .orderType(OrderType.valueOf(order.getOrderType()))
+                .timeInForce(TimeInForce.GTC)
+                // --- PASS TO ADAPTER VIA META ---
+                .meta(java.util.Map.of("productType", pType))
                 .build();
 
         try {

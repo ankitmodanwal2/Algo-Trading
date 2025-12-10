@@ -64,13 +64,12 @@ public class DhanAdapter implements BrokerClient {
                 .flatMap(json -> {
                     try {
                         DhanCredentials creds = objectMapper.readValue(json, DhanCredentials.class);
-                        String clientId = creds.getClientId().trim();
                         String accessToken = creds.getAccessToken().trim();
 
+                        // Validate by fetching positions (read-only safe check)
                         return webClient.get()
-                                .uri("/orders")
+                                .uri("/v2/positions") // Use v2 as per reference project
                                 .header("access-token", accessToken)
-                                .header("client-id", clientId)
                                 .header("Content-Type", "application/json")
                                 .retrieve()
                                 .toBodilessEntity()
@@ -78,7 +77,7 @@ public class DhanAdapter implements BrokerClient {
                                 .onErrorResume(e -> {
                                     if (e instanceof WebClientResponseException wcre) {
                                         if (wcre.getStatusCode().value() == 401 || wcre.getStatusCode().value() == 403) {
-                                            return Mono.error(new RuntimeException("Invalid Client ID or Access Token"));
+                                            return Mono.error(new RuntimeException("Invalid Access Token"));
                                         }
                                     }
                                     return Mono.error(new RuntimeException("Dhan API Error: " + e.getMessage()));
@@ -93,11 +92,11 @@ public class DhanAdapter implements BrokerClient {
     public Mono<BrokerOrderResponse> placeOrder(String accountId, BrokerOrderRequest req) {
         return getCredentials(accountId)
                 .flatMap(creds -> webClient.post()
-                        .uri(props.getPlaceOrderPath())
+                        .uri("/v2/orders") // Use v2 explicitly
                         .header("access-token", creds.getAccessToken().trim())
-                        .header("client-id", creds.getClientId().trim())
                         .header("Content-Type", "application/json")
-                        .bodyValue(mapToDhanPayload(req))
+                        // Pass ClientID from credentials to payload mapper
+                        .bodyValue(mapToDhanPayload(req, creds.getClientId()))
                         .retrieve()
                         .bodyToMono(JsonNode.class)
                         .map(this::toBrokerOrderResponse)
@@ -108,26 +107,28 @@ public class DhanAdapter implements BrokerClient {
     public Mono<List<BrokerPosition>> getPositions(String accountId) {
         return getCredentials(accountId)
                 .flatMap(creds -> webClient.get()
-                        .uri("/positions")
+                        .uri("/v2/positions") // Use v2 explicitly
                         .header("access-token", creds.getAccessToken().trim())
-                        .header("client-id", creds.getClientId().trim())
                         .header("Content-Type", "application/json")
                         .retrieve()
                         .bodyToMono(JsonNode.class)
                         .map(rootNode -> {
                             List<BrokerPosition> positions = new ArrayList<>();
-                            // Handle different JSON structures safely
-                            JsonNode dataNode = rootNode.has("data") ? rootNode.get("data") : rootNode;
+                            // Reference project logic: response is a List directly or inside data
+                            // WebClient might map it to ArrayNode if it's a list
+                            if (rootNode.isArray()) {
+                                for (JsonNode node : rootNode) {
+                                    // Filter out closed positions (netQty == 0) like reference project
+                                    int netQty = node.path("netQty").asInt(0);
+                                    if (netQty == 0) continue;
 
-                            if (dataNode.isArray()) {
-                                for (JsonNode node : dataNode) {
                                     positions.add(BrokerPosition.builder()
                                             .symbol(node.path("tradingSymbol").asText("Unknown"))
                                             .productType(node.path("productType").asText("INTRADAY"))
-                                            .netQuantity(new BigDecimal(node.path("netQty").asText("0")))
-                                            .avgPrice(new BigDecimal(node.path("avgPrice").asText("0"))) // Use avgPrice or avgCostPrice depending on Dhan version
-                                            .ltp(new BigDecimal(node.path("ltp").asText("0")))
-                                            .pnl(new BigDecimal(node.path("realizedProfitLoss").asDouble(0.0) + node.path("unrealizedProfitLoss").asDouble(0.0)))
+                                            .netQuantity(new BigDecimal(netQty))
+                                            .avgPrice(new BigDecimal(node.path("avgPrice").asDouble(0.0)))
+                                            .ltp(new BigDecimal(node.path("ltp").asDouble(0.0)))
+                                            .pnl(new BigDecimal(node.path("realizedProfit").asDouble(0.0) + node.path("unrealizedProfit").asDouble(0.0)))
                                             .buyQty(new BigDecimal(node.path("buyQty").asText("0")))
                                             .sellQty(new BigDecimal(node.path("sellQty").asText("0")))
                                             .build());
@@ -138,17 +139,26 @@ public class DhanAdapter implements BrokerClient {
                 );
     }
 
-    private Map<String, Object> mapToDhanPayload(BrokerOrderRequest req) {
+    private Map<String, Object> mapToDhanPayload(BrokerOrderRequest req, String clientId) {
         Map<String, Object> payload = new HashMap<>();
-        payload.put("dhanClientId", "YOUR_CLIENT_ID_placeholder");
+        payload.put("dhanClientId", clientId);
         payload.put("transactionType", req.getSide().name());
         payload.put("exchangeSegment", "NSE_EQ");
-        payload.put("productType", "INTRADAY");
+
+        // --- USE DYNAMIC PRODUCT TYPE ---
+        // Default to INTRADAY if missing
+        String pType = req.getMeta() != null ? (String) req.getMeta().getOrDefault("productType", "INTRADAY") : "INTRADAY";
+        payload.put("productType", pType);
+        // --------------------------------
+
         payload.put("orderType", req.getOrderType().name());
         payload.put("validity", "DAY");
         payload.put("securityId", req.getSymbol());
         payload.put("quantity", req.getQuantity());
-        payload.put("price", req.getPrice());
+
+        if (req.getPrice() != null && req.getPrice().doubleValue() > 0) {
+            payload.put("price", req.getPrice());
+        }
         return payload;
     }
 

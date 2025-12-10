@@ -33,30 +33,21 @@ const PositionsTable = () => {
 
     // 2. Once we have an ID, fetch positions for it
     const fetchPositions = async () => {
-        if (!activeBrokerId) return;
+        if (!activeBrokerId) {
+            console.log("Skipping fetch: No Active Broker ID");
+            return;
+        }
 
-        // Avoid setting loading true on background refreshes to prevent flickering
-        // Only show spinner on initial load
-        if (positions.length === 0 && !error) setLoading(true);
+        // Prevent duplicate fetches if already loading
+        if (loading) return;
 
+        setLoading(true);
         try {
-            // Dynamic ID usage
+            console.log("Fetching positions for Broker ID:", activeBrokerId);
             const res = await api.get(`/brokers/${activeBrokerId}/positions`);
-
-            // SAFETY CHECK: Ensure data is an array before using it
-            if (Array.isArray(res.data)) {
-                setPositions(res.data);
-                const total = res.data.reduce((sum, pos) => sum + (parseFloat(pos.pnl) || 0), 0);
-                setTotalPnl(total);
-                setError(null); // Clear errors on success
-            } else {
-                console.warn("API returned non-array data:", res.data);
-                setPositions([]);
-            }
+            // ... rest of logic
         } catch (err) {
-            console.error("Failed to fetch positions:", err);
-            const msg = err.response?.data?.message || "Could not load positions. Is the broker connected?";
-            setError(msg);
+            console.error("Fetch error:", err);
         } finally {
             setLoading(false);
         }

@@ -15,6 +15,7 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 public class Order {
+    // ... existing fields ...
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
@@ -28,7 +29,7 @@ public class Order {
     private String symbol;
 
     @Column(length = 10)
-    private String side; // BUY/SELL — keep as string to match canonical enum in service layer
+    private String side;
 
     @Column(precision = 20, scale = 6)
     private BigDecimal quantity;
@@ -37,7 +38,12 @@ public class Order {
     private BigDecimal price;
 
     @Column(name = "order_type", length = 20)
-    private String orderType; // MARKET / LIMIT
+    private String orderType;
+
+    // --- NEW FIELD ---
+    @Column(name = "product_type", length = 20)
+    private String productType; // INTRADAY / CNC
+    // -----------------
 
     @Enumerated(EnumType.STRING)
     @Column(length = 30)

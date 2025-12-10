@@ -9,10 +9,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.security.core.userdetails.UserDetailsService;
 
 import java.io.IOException;
 
@@ -27,6 +27,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.userDetailsService = userDetailsService;
     }
 
+    /**
+     * CRITICAL FIX: Skip JWT check for OPTIONS requests (CORS preflight)
+     * and public endpoints.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return request.getMethod().equalsIgnoreCase("OPTIONS") ||
+                path.startsWith("/ws") ||
+                path.startsWith("/api/v1/auth");
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -35,10 +47,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         String requestURI = request.getRequestURI();
 
-        // Skip logging for public paths to reduce noise
-        if (!requestURI.startsWith("/ws") && !requestURI.startsWith("/api/v1/auth")) {
-            if (!StringUtils.hasText(header) || !header.startsWith("Bearer ")) {
-                logger.warn("JWT Filter: Missing or Invalid Authorization Header for URI: {}", requestURI);
+        // DEBUG LOG
+        if (!shouldNotFilter(request)) {
+            if (header == null) {
+                logger.warn(">>> INCOMING REQUEST [{}]: No Authorization Header found", requestURI);
+            } else {
+                logger.info(">>> INCOMING REQUEST [{}]: Header found (starts with Bearer? {})", requestURI, header.startsWith("Bearer "));
             }
         }
 
@@ -49,21 +63,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-                    // Explicitly validate token
-                    // Note: validateToken throws JwtException if invalid
-                    jwtUtil.validateToken(token);
-
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                            userDetails, null, userDetails.getAuthorities());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    if (jwtUtil.validateToken(token) != null) { // Ensure validate doesn't throw
+                        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                                userDetails, null, userDetails.getAuthorities());
+                        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                        SecurityContextHolder.getContext().setAuthentication(auth);
+                    }
                 }
             } catch (Exception ex) {
-                // This is the crucial log we need to see
-                logger.error("JWT Filter: Token Validation Failed for URI: {} - Error: {}", requestURI, ex.getMessage());
+                // Log but don't crash - let Spring Security handle the 401 later if context is empty
+                logger.error("JWT Auth Failed for {}: {}", requestURI, ex.getMessage());
                 SecurityContextHolder.clearContext();
             }
         }
+
         filterChain.doFilter(request, response);
     }
 }

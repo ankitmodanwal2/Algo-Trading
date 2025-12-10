@@ -9,16 +9,11 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-    // Always fetch the latest token from storage right before the request flies
     const token = localStorage.getItem('authToken');
-
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
-        // Debug log to verify token attachment
-        console.log(`[API] Attaching Token to ${config.url}`);
     } else {
-        // Warning if request is flying without auth
-        console.warn(`[API] No Token found for ${config.url}`);
+        console.warn(`[API] Warning: Sending request to ${config.url} WITHOUT token.`);
     }
     return config;
 });
@@ -26,10 +21,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        console.error("API Error:", error);
-        if (error.response?.status === 401) {
-            // TOAST ONLY - DO NOT REDIRECT while debugging
-            toast.error("Session Invalid (401). Check Console.");
+        const status = error.response?.status;
+
+        if (status === 401) {
+            console.error("Authentication Failed (401).");
+            // toast.error("Session expired. Please manually logout.");
+
+            // --- CRITICAL FIX: COMMENT OUT THESE LINES TO STOP THE LOOP ---
+            // localStorage.removeItem('authToken');
+            // window.location.href = '/login';
+            // ---------------------------------------------------------------
         }
         return Promise.reject(error);
     }

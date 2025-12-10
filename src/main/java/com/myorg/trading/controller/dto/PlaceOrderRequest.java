@@ -25,4 +25,7 @@ public class PlaceOrderRequest {
 
     @NotNull
     private OrderType orderType;
+
+    // --- NEW FIELD ---
+    private String productType; // INTRADAY, CNC, etc.
 }

@@ -45,6 +45,8 @@ public class OrderController {
                 .quantity(req.getQuantity())
                 .price(req.getPrice())
                 .orderType(req.getOrderType().name())
+                // --- MAP PRODUCT TYPE ---
+                .productType(req.getProductType())
                 .status(OrderStatus.PENDING)
                 .build();
 
