@@ -15,6 +15,7 @@ const Login = () => {
         setIsLoading(true);
 
         try {
+            console.log('📝 Login form submitted');
             const success = await login(data.username, data.password);
 
             if (success) {
@@ -22,23 +23,25 @@ const Login = () => {
                     style: { background: '#10b981', color: '#fff' },
                 });
 
-                // ✅ FIX: Add multiple verification layers
-                await new Promise(resolve => setTimeout(resolve, 200));
+                // Wait for state to settle
+                await new Promise(resolve => setTimeout(resolve, 300));
 
-                // Verify token exists in multiple ways
-                const token = localStorage.getItem('authToken');
+                // Verify authentication state
                 const storeState = useAuthStore.getState();
+                const token = localStorage.getItem('authToken');
 
-                console.log('🔍 Login Verification:');
+                console.log('🔍 Pre-navigation checks:');
                 console.log('  - localStorage token:', token ? '✅ Present' : '❌ Missing');
-                console.log('  - Zustand isAuthenticated:', storeState.isAuthenticated);
+                console.log('  - Zustand authenticated:', storeState.isAuthenticated);
                 console.log('  - Zustand token:', storeState.token ? '✅ Present' : '❌ Missing');
 
                 if (token && storeState.isAuthenticated && storeState.token) {
                     console.log('✅ All checks passed - navigating to dashboard');
+
+                    // Use replace to prevent back button issues
                     navigate('/', { replace: true });
                 } else {
-                    console.error('❌ Token verification failed!');
+                    console.error('❌ Authentication state mismatch!');
                     toast.error('Login state error - please try again');
                     setIsLoading(false);
                 }

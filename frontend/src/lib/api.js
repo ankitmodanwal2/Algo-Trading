@@ -39,11 +39,13 @@ api.interceptors.response.use(
         }
 
         const status = error.response?.status;
+        const currentPath = window.location.pathname;
 
+        // ✅ FIX: Only handle 401 if we're NOT on login page AND we have a token
         if (status === 401) {
-            // ✅ FIX: Only redirect if NOT already on login page
-            const currentPath = window.location.pathname;
-            if (!currentPath.includes('/login')) {
+            const hasToken = localStorage.getItem('authToken');
+
+            if (hasToken && !currentPath.includes('/login')) {
                 console.error('❌ 401 Unauthorized - Session expired');
                 localStorage.removeItem('authToken');
                 toast.error('Session expired. Please login again.');
@@ -56,6 +58,9 @@ api.interceptors.response.use(
             toast.error('Server error. Please try again.');
         } else if (status === 403) {
             toast.error('Access denied');
+        } else if (status === 400) {
+            // Don't show toast for 400 errors, let component handle them
+            console.warn('Bad request:', error.response?.data);
         }
 
         return Promise.reject(error);

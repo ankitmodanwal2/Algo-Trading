@@ -30,9 +30,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return request.getMethod().equalsIgnoreCase("OPTIONS") ||
+        String method = request.getMethod();
+
+        return method.equalsIgnoreCase("OPTIONS") ||
                 path.startsWith("/ws") ||
-                path.startsWith("/api/v1/auth");
+                path.startsWith("/api/v1/auth") ||
+                path.startsWith("/api/v1/health");
     }
 
     @Override
@@ -43,37 +46,45 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         String requestURI = request.getRequestURI();
 
-        // ✅ FIX: Only log missing headers for protected routes
-        if (!shouldNotFilter(request) && header == null) {
-            logger.warn(">>> REQUEST [{}]: Missing Authorization Header", requestURI);
-        }
+        logger.debug("Processing request: {} {}", request.getMethod(), requestURI);
 
         if (StringUtils.hasText(header) && header.startsWith("Bearer ")) {
             String token = header.substring(7);
             try {
+                // Extract username from token
                 String username = jwtUtil.getUsername(token);
+                logger.debug("Extracted username from token: {}", username);
 
-                // ✅ FIX: Only set auth if context is empty AND token is valid
+                // Only authenticate if not already authenticated
                 if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+                    // Load user details
                     UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-                    // ✅ FIX: Validate token properly
-                    if (jwtUtil.validateToken(token) != null && !jwtUtil.isTokenExpired(token)) {
-                        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                                userDetails, null, userDetails.getAuthorities());
-                        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                        SecurityContextHolder.getContext().setAuthentication(auth);
+                    // Validate token
+                    try {
+                        jwtUtil.validateToken(token);
 
-                        logger.debug("✅ Auth Success for user: {} on path: {}", username, requestURI);
-                    } else {
-                        logger.warn("❌ Token expired or invalid for user: {}", username);
-                        // ✅ CRITICAL: Don't clear context - let Spring Security handle 401
+                        // Token is valid, set authentication
+                        UsernamePasswordAuthenticationToken authentication =
+                                new UsernamePasswordAuthenticationToken(
+                                        userDetails,
+                                        null,
+                                        userDetails.getAuthorities()
+                                );
+                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                        logger.debug("✅ Authentication successful for user: {} on path: {}", username, requestURI);
+                    } catch (Exception validationEx) {
+                        logger.warn("⚠️ Token validation failed for user {}: {}", username, validationEx.getMessage());
                     }
                 }
             } catch (Exception ex) {
-                logger.error("❌ JWT Auth Failed for {}: {}", requestURI, ex.getMessage());
-                // ✅ CRITICAL: Don't clear context - just log and continue
+                logger.error("❌ Error processing JWT for {}: {}", requestURI, ex.getMessage());
             }
+        } else if (!shouldNotFilter(request)) {
+            logger.debug("No Authorization header found for protected route: {}", requestURI);
         }
 
         filterChain.doFilter(request, response);
