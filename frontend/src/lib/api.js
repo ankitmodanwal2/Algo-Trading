@@ -8,54 +8,44 @@ const api = axios.create({
     },
 });
 
-// ===== REQUEST INTERCEPTOR =====
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('authToken');
-
-    // Check public endpoints
     const publicEndpoints = ['/auth/login', '/auth/register'];
     const isPublic = publicEndpoints.some(endpoint => config.url.includes(endpoint));
 
-    if (isPublic) {
-        return config;
+    if (!isPublic) {
+        if (token) {
+            config.headers.set('Authorization', `Bearer ${token}`);
+        } else {
+            const controller = new AbortController();
+            config.signal = controller.signal;
+            controller.abort("No Auth Token Found");
+        }
     }
-
-    if (token) {
-        // ✅ CRITICAL FIX: Use .set() for Axios 1.6+ compatibility
-        config.headers.set('Authorization', `Bearer ${token}`);
-
-        // 🔍 DEBUG LOG: Print to console to prove we attached it
-        console.log(`🔑 Attached Token to: ${config.url}`);
-    } else {
-        // Block request if no token
-        console.warn(`⛔ Blocking request to ${config.url} (No Token)`);
-        const controller = new AbortController();
-        config.signal = controller.signal;
-        controller.abort("No Auth Token Found");
-    }
-
     return config;
-}, (error) => {
-    return Promise.reject(error);
-});
+}, (error) => Promise.reject(error));
 
-// ===== RESPONSE INTERCEPTOR =====
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        // Ignore our own blocks
         if (axios.isCancel(error) || error.message === "No Auth Token Found") {
             return Promise.reject(error);
         }
 
         const status = error.response?.status;
         const currentPath = window.location.pathname;
+        const url = error.config?.url || "";
 
         if (status === 401) {
             const hasToken = localStorage.getItem('authToken');
-            if (hasToken && !currentPath.includes('/login')) {
-                // We just warn for now to keep your dashboard open for debugging
-                console.warn('⚠️ Server returned 401 Unauthorized.');
+
+            // 🛡️ SMART FILTER: Don't show toast/logout for background polling failures
+            const isBackgroundPoll = url.includes('/positions') || url.includes('/marketdata');
+
+            if (hasToken && !currentPath.includes('/login') && !isBackgroundPoll) {
+                console.warn('⚠️ Session expired. Logging out...');
+                localStorage.removeItem('authToken');
+                window.location.href = '/login';
             }
         }
         else if (status >= 500) {

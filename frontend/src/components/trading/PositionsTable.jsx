@@ -9,10 +9,9 @@ const PositionsTable = () => {
     const [totalPnl, setTotalPnl] = useState(0);
     const [activeBrokerId, setActiveBrokerId] = useState(null);
 
-    // Track mounted state
+    // 🔒 LOCKS
     const isMounted = useRef(true);
-    // Track the active API request to cancel it if needed
-    const abortControllerRef = useRef(null);
+    const isFetching = useRef(false); // Prevents double-firing
 
     useEffect(() => {
         return () => { isMounted.current = false; };
@@ -35,30 +34,19 @@ const PositionsTable = () => {
     }, []);
 
     const fetchPositions = async () => {
+        // 🛡️ GUARD 1: No Broker or No Token? Stop.
         if (!activeBrokerId) return;
-
-        // 1. Double check token existence before firing
         const token = localStorage.getItem('authToken');
-        if (!token) {
-            console.warn("Skipping position fetch: No Auth Token");
-            return;
-        }
+        if (!token) return;
 
-        // 2. Cancel previous request if it's still running
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
+        // 🛡️ GUARD 2: Already fetching? Stop. (The "Ghost" killer)
+        if (isFetching.current) return;
 
-        // 3. Create new AbortController
-        abortControllerRef.current = new AbortController();
-
+        isFetching.current = true;
         if (positions.length === 0) setLoading(true);
 
         try {
-            // 4. Pass the signal to axios
-            const res = await api.get(`/brokers/${activeBrokerId}/positions`, {
-                signal: abortControllerRef.current.signal
-            });
+            const res = await api.get(`/brokers/${activeBrokerId}/positions`);
 
             if (isMounted.current && Array.isArray(res.data)) {
                 setPositions(res.data);
@@ -67,31 +55,24 @@ const PositionsTable = () => {
                 setError(null);
             }
         } catch (err) {
-            if (err.name === 'Canceled') return; // Ignore cancellations
-
-            console.error("Failed to fetch positions:", err);
+            // Silently ignore auth errors in background polling
             if (err.response?.status !== 401 && isMounted.current) {
+                console.error("Failed to fetch positions:", err);
                 setError("Could not load positions.");
             }
         } finally {
+            isFetching.current = false; // Release lock
             if (isMounted.current) setLoading(false);
         }
     };
 
     // Poll for positions
     useEffect(() => {
-        let interval;
         if (activeBrokerId) {
             fetchPositions(); // Initial fetch
-            interval = setInterval(fetchPositions, 5000); // Poll every 5s
+            const interval = setInterval(fetchPositions, 5000); // Poll every 5s
+            return () => clearInterval(interval);
         }
-        return () => {
-            clearInterval(interval);
-            // Cancel any pending request when unmounting/changing broker
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-        };
     }, [activeBrokerId]);
 
     if (error) {
