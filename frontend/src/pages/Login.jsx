@@ -22,26 +22,35 @@ const Login = () => {
                     style: { background: '#10b981', color: '#fff' },
                 });
 
-                // ✅ FIX: Force synchronous check before navigation
-                await new Promise(resolve => setTimeout(resolve, 150));
+                // ✅ FIX: Add multiple verification layers
+                await new Promise(resolve => setTimeout(resolve, 200));
 
-                // Double-check token is present before navigating
+                // Verify token exists in multiple ways
                 const token = localStorage.getItem('authToken');
-                if (token) {
+                const storeState = useAuthStore.getState();
+
+                console.log('🔍 Login Verification:');
+                console.log('  - localStorage token:', token ? '✅ Present' : '❌ Missing');
+                console.log('  - Zustand isAuthenticated:', storeState.isAuthenticated);
+                console.log('  - Zustand token:', storeState.token ? '✅ Present' : '❌ Missing');
+
+                if (token && storeState.isAuthenticated && storeState.token) {
+                    console.log('✅ All checks passed - navigating to dashboard');
                     navigate('/', { replace: true });
                 } else {
-                    console.error('Token not found after login!');
-                    toast.error('Login failed - please try again');
+                    console.error('❌ Token verification failed!');
+                    toast.error('Login state error - please try again');
+                    setIsLoading(false);
                 }
             } else {
                 toast.error('Invalid Credentials', {
                     style: { background: '#ef4444', color: '#fff' },
                 });
+                setIsLoading(false);
             }
         } catch (error) {
-            console.error('Login error:', error);
+            console.error('❌ Login error:', error);
             toast.error('Login failed - please try again');
-        } finally {
             setIsLoading(false);
         }
     };

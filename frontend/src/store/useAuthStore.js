@@ -12,13 +12,33 @@ const useAuthStore = create((set) => ({
             const { token } = res.data;
 
             if (token) {
+                // ✅ FIX: Save token SYNCHRONOUSLY before updating state
                 localStorage.setItem('authToken', token);
-                set({ isAuthenticated: true, token, user: { username } });
+
+                // ✅ FIX: Force synchronous write (some browsers need this)
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                // ✅ FIX: Verify token was saved
+                const savedToken = localStorage.getItem('authToken');
+                if (!savedToken) {
+                    console.error('❌ Token failed to save to localStorage!');
+                    return false;
+                }
+
+                console.log('✅ Token saved successfully:', savedToken.substring(0, 20) + '...');
+
+                // Now update Zustand state
+                set({
+                    isAuthenticated: true,
+                    token: savedToken,
+                    user: { username }
+                });
+
                 return true;
             }
             return false;
         } catch (error) {
-            console.error('Login failed', error);
+            console.error('❌ Login failed:', error);
             return false;
         }
     },

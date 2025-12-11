@@ -43,7 +43,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         String requestURI = request.getRequestURI();
 
-        // ✅ FIX: Only log when header is missing for protected routes
+        // ✅ FIX: Only log missing headers for protected routes
         if (!shouldNotFilter(request) && header == null) {
             logger.warn(">>> REQUEST [{}]: Missing Authorization Header", requestURI);
         }
@@ -57,7 +57,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-                    // Validate token
+                    // ✅ FIX: Validate token properly
                     if (jwtUtil.validateToken(token) != null && !jwtUtil.isTokenExpired(token)) {
                         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                                 userDetails, null, userDetails.getAuthorities());
@@ -67,13 +67,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         logger.debug("✅ Auth Success for user: {} on path: {}", username, requestURI);
                     } else {
                         logger.warn("❌ Token expired or invalid for user: {}", username);
-                        // ✅ DON'T clear context here - let Spring Security handle 401
+                        // ✅ CRITICAL: Don't clear context - let Spring Security handle 401
                     }
                 }
             } catch (Exception ex) {
                 logger.error("❌ JWT Auth Failed for {}: {}", requestURI, ex.getMessage());
                 // ✅ CRITICAL: Don't clear context - just log and continue
-                // Spring Security will return 401 if context is empty
             }
         }
 

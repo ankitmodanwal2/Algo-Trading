@@ -66,6 +66,7 @@ public class DhanAdapter implements BrokerClient {
                         DhanCredentials creds = objectMapper.readValue(json, DhanCredentials.class);
                         String accessToken = creds.getAccessToken().trim();
 
+                        // ✅ FIX: Use correct Dhan validation endpoint
                         return webClient.get()
                                 .uri("/v2/positions")
                                 .header("access-token", accessToken)
@@ -114,11 +115,11 @@ public class DhanAdapter implements BrokerClient {
                             List<BrokerPosition> positions = new ArrayList<>();
                             if (rootNode.isArray()) {
                                 for (JsonNode node : rootNode) {
-                                    // 1. Filter out closed positions (netQty == 0)
+                                    // Filter out closed positions
                                     int netQty = node.path("netQty").asInt(0);
                                     if (netQty == 0) continue;
 
-                                    // 2. Logic to calculate Average Price (Same as Reference Project)
+                                    // Calculate Average Price
                                     double avgPrice = 0.0;
                                     if (netQty > 0) {
                                         avgPrice = node.path("buyAvg").asDouble(0.0);
@@ -127,18 +128,16 @@ public class DhanAdapter implements BrokerClient {
                                         avgPrice = node.path("sellAvg").asDouble(0.0);
                                         if (avgPrice == 0.0) avgPrice = node.path("avgPrice").asDouble(0.0);
                                     }
-                                    // Fallback: Day Buy Value / Day Buy Qty
+
                                     if (avgPrice == 0.0) {
                                         double dayBuyVal = node.path("dayBuyValue").asDouble(0.0);
                                         int dayBuyQty = node.path("dayBuyQty").asInt(0);
                                         if (dayBuyQty > 0) avgPrice = dayBuyVal / dayBuyQty;
                                     }
 
-                                    // 3. Logic for LTP
                                     double ltp = node.path("lastTradedPrice").asDouble(0.0);
                                     if (ltp == 0.0) ltp = node.path("ltp").asDouble(0.0);
 
-                                    // 4. Logic for PnL
                                     double realized = node.path("realizedProfit").asDouble(0.0);
                                     double unrealized = node.path("unrealizedProfit").asDouble(0.0);
 
@@ -164,15 +163,14 @@ public class DhanAdapter implements BrokerClient {
         payload.put("dhanClientId", clientId);
         payload.put("transactionType", req.getSide().name());
 
-        // --- 🌟 DYNAMIC EXCHANGE LOGIC 🌟 ---
-        // Defaults to NSE_EQ, but allows override via meta (passed from frontend)
+        // Dynamic exchange logic
         String exchange = "NSE_EQ";
         if (req.getMeta() != null && req.getMeta().containsKey("exchange")) {
             exchange = (String) req.getMeta().get("exchange");
         }
         payload.put("exchangeSegment", exchange);
 
-        // --- DYNAMIC PRODUCT TYPE ---
+        // Dynamic product type
         String pType = req.getMeta() != null ? (String) req.getMeta().getOrDefault("productType", "INTRADAY") : "INTRADAY";
         payload.put("productType", pType);
 

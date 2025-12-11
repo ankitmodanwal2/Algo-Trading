@@ -16,13 +16,13 @@ api.interceptors.request.use((config) => {
     const publicEndpoints = ['/auth/login', '/auth/register'];
     const isPublic = publicEndpoints.some(endpoint => config.url.includes(endpoint));
 
-    // Add token if available
-    if (token) {
+    // ✅ FIX: Only add token if it exists (don't block requests without token)
+    if (token && !isPublic) {
         config.headers.Authorization = `Bearer ${token}`;
+        console.log('🔑 Adding token to request:', config.url);
+    } else if (!token && !isPublic) {
+        console.warn('⚠️ No token found for protected endpoint:', config.url);
     }
-
-    // ✅ FIX: Don't block non-public requests without token
-    // Let the backend return 401, which we handle in response interceptor
 
     return config;
 }, (error) => {
@@ -33,25 +33,29 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        // Ignore cancelled requests (from our abort logic)
+        // Ignore cancelled requests
         if (axios.isCancel(error)) {
-            return new Promise(() => {}); // Swallow the error
+            return new Promise(() => {});
         }
 
         const status = error.response?.status;
 
         if (status === 401) {
-            // ✅ Only redirect if NOT already on login page
-            if (!window.location.pathname.includes('/login')) {
-                console.error("Session expired or invalid token.");
+            // ✅ FIX: Only redirect if NOT already on login page
+            const currentPath = window.location.pathname;
+            if (!currentPath.includes('/login')) {
+                console.error('❌ 401 Unauthorized - Session expired');
                 localStorage.removeItem('authToken');
-                toast.error("Session expired. Please login again.");
+                toast.error('Session expired. Please login again.');
 
-                // Delay redirect to let user read the toast
                 setTimeout(() => {
                     window.location.href = '/login';
                 }, 1500);
             }
+        } else if (status >= 500) {
+            toast.error('Server error. Please try again.');
+        } else if (status === 403) {
+            toast.error('Access denied');
         }
 
         return Promise.reject(error);
