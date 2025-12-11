@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'; // Import useRef
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../../lib/api';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 
@@ -9,8 +9,10 @@ const PositionsTable = () => {
     const [totalPnl, setTotalPnl] = useState(0);
     const [activeBrokerId, setActiveBrokerId] = useState(null);
 
-    // Track mounted state to prevent setting state on unmounted component
+    // Track mounted state
     const isMounted = useRef(true);
+    // Track the active API request to cancel it if needed
+    const abortControllerRef = useRef(null);
 
     useEffect(() => {
         return () => { isMounted.current = false; };
@@ -20,7 +22,6 @@ const PositionsTable = () => {
         try {
             const res = await api.get('/brokers/linked');
             if (isMounted.current && res.data && res.data.length > 0) {
-                // Pick the most recently added broker
                 const newest = res.data[res.data.length - 1];
                 setActiveBrokerId(newest.id);
             }
@@ -34,23 +35,30 @@ const PositionsTable = () => {
     }, []);
 
     const fetchPositions = async () => {
-        // 1. Safety Check: Broker ID must exist
         if (!activeBrokerId) return;
 
-        // 2. Safety Check: Token must exist
+        // 1. Double check token existence before firing
         const token = localStorage.getItem('authToken');
         if (!token) {
             console.warn("Skipping position fetch: No Auth Token");
             return;
         }
 
-        if (loading) return; // Prevent overlapping fetches
+        // 2. Cancel previous request if it's still running
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
 
-        // Only show loader on first load (to avoid flicker on poll)
+        // 3. Create new AbortController
+        abortControllerRef.current = new AbortController();
+
         if (positions.length === 0) setLoading(true);
 
         try {
-            const res = await api.get(`/brokers/${activeBrokerId}/positions`);
+            // 4. Pass the signal to axios
+            const res = await api.get(`/brokers/${activeBrokerId}/positions`, {
+                signal: abortControllerRef.current.signal
+            });
 
             if (isMounted.current && Array.isArray(res.data)) {
                 setPositions(res.data);
@@ -59,8 +67,9 @@ const PositionsTable = () => {
                 setError(null);
             }
         } catch (err) {
+            if (err.name === 'Canceled') return; // Ignore cancellations
+
             console.error("Failed to fetch positions:", err);
-            // Don't show error on 401 (let global handler handle it), only others
             if (err.response?.status !== 401 && isMounted.current) {
                 setError("Could not load positions.");
             }
@@ -76,7 +85,13 @@ const PositionsTable = () => {
             fetchPositions(); // Initial fetch
             interval = setInterval(fetchPositions, 5000); // Poll every 5s
         }
-        return () => clearInterval(interval);
+        return () => {
+            clearInterval(interval);
+            // Cancel any pending request when unmounting/changing broker
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
     }, [activeBrokerId]);
 
     if (error) {
