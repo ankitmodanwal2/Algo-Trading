@@ -17,6 +17,31 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // --- CRITICAL FIX: Trap Dhan Errors & Prevent Logout Loop ---
+    @ExceptionHandler(WebClientResponseException.class)
+    public ResponseEntity<?> handleBrokerError(WebClientResponseException ex) {
+        // 1. Log the REAL error from Dhan (e.g. "Token expired")
+        System.err.println(">>> BROKER API ERROR: " + ex.getResponseBodyAsString());
+
+        // 2. If Dhan says 401 (Unauthorized), send 400 (Bad Request) to Frontend.
+        //    This prevents the Frontend from thinking *App Login* is expired.
+        if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of(
+                            "error", "broker_auth_failed",
+                            "message", "Broker Connection Failed: Invalid or Expired Token. Please Re-link."
+                    ));
+        }
+
+        // 3. For other errors, return 500
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                        "error", "broker_error",
+                        "status", ex.getStatusCode().value(),
+                        "message", "Broker rejected request. Check backend logs."
+                ));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
@@ -25,22 +50,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<?> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "access_denied", "message", ex.getMessage()));
-    }
-
-    // --- NEW: Trap Broker Errors ---
-    @ExceptionHandler(WebClientResponseException.class)
-    public ResponseEntity<?> handleBrokerError(WebClientResponseException ex) {
-        // Log the error here in a real app
-        System.err.println("Broker API Error: " + ex.getResponseBodyAsString());
-
-        // CRITICAL: Return 500 (Internal Server Error) instead of ex.getStatusCode()
-        // If we return 401 here, the Frontend will log the user out.
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of(
-                        "error", "broker_error",
-                        "status", ex.getStatusCode().value(),
-                        "message", "Broker rejected request. Check backend logs."
-                ));
     }
 
     @ExceptionHandler(Exception.class)

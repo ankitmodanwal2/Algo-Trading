@@ -10,51 +10,40 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('authToken');
-    const publicEndpoints = ['/auth/login', '/auth/register'];
-    const isPublic = publicEndpoints.some(endpoint => config.url.includes(endpoint));
 
-    if (!isPublic) {
-        if (token) {
-            config.headers.set('Authorization', `Bearer ${token}`);
-        } else {
-            const controller = new AbortController();
-            config.signal = controller.signal;
-            controller.abort("No Auth Token Found");
-        }
+    // Don't attach token for auth endpoints
+    if (config.url.includes('/auth/')) return config;
+
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    } else {
+        console.warn(`[API] BLOCKED request to ${config.url} (No Token)`);
+        const controller = new AbortController();
+        config.signal = controller.signal;
+        controller.abort("No Auth Token");
+        return Promise.reject(new axios.Cancel("No Auth Token"));
     }
     return config;
-}, (error) => Promise.reject(error));
+});
 
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (axios.isCancel(error) || error.message === "No Auth Token Found") {
-            return Promise.reject(error);
-        }
+        if (axios.isCancel(error)) return new Promise(() => {});
 
         const status = error.response?.status;
-        const currentPath = window.location.pathname;
-        const url = error.config?.url || "";
+        // Check if the request config had the 'silent' flag
+        const isSilent = error.config?.silent;
 
         if (status === 401) {
-            const hasToken = localStorage.getItem('authToken');
+            console.error(`[API] 401 Unauthorized for ${error.config?.url}`);
 
-            // 🛡️ SMART FILTER: Don't show toast/logout for background polling failures
-            const isBackgroundPoll = url.includes('/positions') || url.includes('/marketdata');
-
-            if (hasToken && !currentPath.includes('/login') && !isBackgroundPoll) {
-                console.warn('⚠️ Session expired. Logging out...');
-                localStorage.removeItem('authToken');
-                window.location.href = '/login';
+            // 🌟 FIX: Only show Toast if NOT silent.
+            // This stops the popup spam for background polling.
+            if (!isSilent) {
+                toast.error("Session Sync Error. Please refresh manually.");
             }
         }
-        else if (status >= 500) {
-            const msg = error.response?.data?.message || '';
-            if(!msg.includes("Dhan Error")) {
-                toast.error('Server error. Please try again.');
-            }
-        }
-
         return Promise.reject(error);
     }
 );

@@ -13,11 +13,17 @@ import java.math.BigDecimal;
 @Builder
 public class BrokerPosition {
     private String symbol;
-    private String productType;   // INTRADAY / CARRYFORWARD
+
+    // --- NEW FIELDS REQUIRED FOR DHAN ADAPTER ---
+    private String securityId;
+    private String exchange;
+    private String productType;
+    // --------------------------------------------
+
     private BigDecimal netQuantity;
     private BigDecimal avgPrice;
-    private BigDecimal ltp;       // Last Traded Price
-    private BigDecimal pnl;       // Profit and Loss
+    private BigDecimal ltp;
+    private BigDecimal pnl;
     private BigDecimal buyQty;
     private BigDecimal sellQty;
 }

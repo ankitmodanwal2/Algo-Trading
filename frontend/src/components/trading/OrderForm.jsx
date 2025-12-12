@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { Search, X, RefreshCw } from 'lucide-react';
 
 const OrderForm = () => {
-    // 1. Initialize form with 'MARKET' as default
     const { register, handleSubmit, setValue, watch, reset } = useForm({
         defaultValues: {
             productType: 'INTRADAY',
@@ -16,18 +15,38 @@ const OrderForm = () => {
     });
 
     const [loading, setLoading] = useState(false);
-
-    // Search State
     const [searchTerm, setSearchTerm] = useState('');
     const [results, setResults] = useState([]);
     const [showResults, setShowResults] = useState(false);
+    const [activeBrokerId, setActiveBrokerId] = useState(null);
 
-    // Track selected exchange to pass to backend
+    // Dhan Specific Data
+    const [selectedSecurityId, setSelectedSecurityId] = useState(null);
     const [selectedExchange, setSelectedExchange] = useState('NSE_EQ');
 
-    // Watch fields for UI logic
     const selectedOrderType = watch('orderType');
     const selectedSide = watch('side');
+
+    // 1. Fetch the correct Broker ID on mount
+    useEffect(() => {
+        const fetchBroker = async () => {
+            try {
+                const res = await api.get('/brokers/linked');
+                const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
+                if (data && data.length > 0) {
+                    // Use the most recently added broker
+                    const newest = data[data.length - 1];
+                    console.log("[OrderForm] Using Broker ID:", newest.id);
+                    setActiveBrokerId(newest.id);
+                } else {
+                    toast.error("No broker linked! Please link Dhan first.");
+                }
+            } catch (err) {
+                console.error("Failed to fetch broker ID");
+            }
+        };
+        fetchBroker();
+    }, []);
 
     // Debounce Search
     useEffect(() => {
@@ -35,7 +54,8 @@ const OrderForm = () => {
             if (searchTerm.length >= 2) {
                 try {
                     const res = await api.get(`/marketdata/search?query=${searchTerm}`);
-                    setResults(res.data);
+                    const data = res.data.data || res.data;
+                    setResults(Array.isArray(data) ? data : []);
                     setShowResults(true);
                 } catch (error) {
                     console.error("Search failed", error);
@@ -50,30 +70,30 @@ const OrderForm = () => {
     }, [searchTerm]);
 
     const handleSelectSymbol = (item) => {
-        setValue('symbol', item.securityId);
         setSearchTerm(item.tradingSymbol);
+        setSelectedSecurityId(item.securityId);
 
-        // Capture Exchange from search result
-        const exch = item.exchangeSegment === 'NSE' ? 'NSE_EQ' : item.exchangeSegment;
+        let exch = item.exchangeSegment;
+        if (exch === 'NSE') exch = 'NSE_EQ';
+        if (exch === 'BSE') exch = 'BSE_EQ';
         setSelectedExchange(exch);
 
         setShowResults(false);
     };
 
-    // Toggle logic for the Button inside Price tab
     const toggleOrderType = () => {
         const newType = selectedOrderType === 'MARKET' ? 'LIMIT' : 'MARKET';
         setValue('orderType', newType);
-        if (newType === 'MARKET') {
-            setValue('price', 0);
-        }
+        if (newType === 'MARKET') setValue('price', 0);
     };
 
     const onSubmit = async (data) => {
-        const finalSymbol = data.symbol || searchTerm;
-
-        if (!finalSymbol || finalSymbol.trim() === '') {
-            toast.error('Please select a stock symbol first!');
+        if (!activeBrokerId) {
+            toast.error("No Broker Account Detected. Please refresh or link broker.");
+            return;
+        }
+        if (!selectedSecurityId) {
+            toast.error("Please select a stock from the search list.");
             return;
         }
 
@@ -81,23 +101,26 @@ const OrderForm = () => {
         try {
             await api.post('/orders/place', {
                 ...data,
-                brokerAccountId: 1, // Ideally dynamic
-                symbol: finalSymbol,
+                brokerAccountId: activeBrokerId, // 🌟 USE DYNAMIC ID
+                symbol: selectedSecurityId,
                 price: data.orderType === 'MARKET' ? 0 : Number(data.price),
-                // Send extra meta data
                 meta: {
                     exchange: selectedExchange,
-                    productType: data.productType
+                    tradingSymbol: searchTerm
                 }
             });
+
             toast.success('Order Placed Successfully');
+
             reset({
-                productType: data.productType, // Keep last used product type
-                orderType: 'MARKET',           // Reset to Market
-                quantity: data.quantity,       // Keep last qty
+                productType: data.productType,
+                orderType: 'MARKET',
+                quantity: 1,
                 price: 0
             });
             setSearchTerm('');
+            setSelectedSecurityId(null);
+
         } catch (err) {
             const msg = err.response?.data?.message || err.message || 'Failed to place order';
             toast.error(msg);
@@ -115,9 +138,14 @@ const OrderForm = () => {
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {/* Display Active Broker Status */}
+            {!activeBrokerId && (
+                <div className="mb-4 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-200 text-xs text-center">
+                    ⚠️ No Broker Linked
+                </div>
+            )}
 
-                {/* --- 1. Searchable Symbol Input --- */}
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
                 <div className="relative z-20">
                     <label className="block text-xs font-medium text-trade-muted mb-1 uppercase tracking-wider">Symbol</label>
                     <div className="relative">
@@ -126,17 +154,18 @@ const OrderForm = () => {
                             value={searchTerm}
                             onChange={(e) => {
                                 setSearchTerm(e.target.value);
-                                setValue('symbol', e.target.value);
+                                setSelectedSecurityId(null);
                             }}
                             className="w-full bg-trade-bg border border-trade-border rounded-lg p-3 pl-10 text-white focus:outline-none focus:border-trade-primary transition-colors font-medium"
                             placeholder="Search (e.g. RELIANCE)"
                             autoComplete="off"
                         />
                         <Search className="absolute left-3 top-3.5 text-trade-muted" size={18} />
+
                         {searchTerm && (
                             <button
                                 type="button"
-                                onClick={() => { setSearchTerm(''); setResults([]); }}
+                                onClick={() => { setSearchTerm(''); setResults([]); setSelectedSecurityId(null); }}
                                 className="absolute right-3 top-3.5 text-trade-muted hover:text-white transition-colors"
                             >
                                 <X size={18} />
@@ -144,7 +173,6 @@ const OrderForm = () => {
                         )}
                     </div>
 
-                    {/* Dropdown Results */}
                     {showResults && results.length > 0 && (
                         <div className="absolute w-full mt-1 bg-trade-panel border border-trade-border rounded-lg shadow-2xl max-h-60 overflow-y-auto">
                             {results.map((item) => (
@@ -162,31 +190,24 @@ const OrderForm = () => {
                             ))}
                         </div>
                     )}
-                    <input type="hidden" {...register('symbol', { required: true })} />
+                    <input type="hidden" {...register('symbol')} value={selectedSecurityId || ''} />
                 </div>
 
-                {/* --- 2. Product Type Selection (Intraday vs Longterm) --- */}
                 <div>
                     <label className="block text-xs font-medium text-trade-muted mb-2 uppercase tracking-wider">Product</label>
                     <div className="grid grid-cols-2 gap-3">
                         <label className="cursor-pointer relative">
                             <input type="radio" value="INTRADAY" {...register('productType')} className="peer sr-only" />
-                            <div className="text-center py-2.5 rounded-lg border border-trade-border bg-trade-bg text-trade-muted font-medium text-sm transition-all hover:bg-trade-border/50 peer-checked:bg-blue-600 peer-checked:text-white peer-checked:border-blue-500 peer-checked:shadow-lg peer-checked:shadow-blue-900/20">
-                                Intraday
-                            </div>
+                            <div className="text-center py-2.5 rounded-lg border border-trade-border bg-trade-bg text-trade-muted font-medium text-sm transition-all hover:bg-trade-border/50 peer-checked:bg-blue-600 peer-checked:text-white peer-checked:border-blue-500">Intraday</div>
                         </label>
                         <label className="cursor-pointer relative">
                             <input type="radio" value="CNC" {...register('productType')} className="peer sr-only" />
-                            <div className="text-center py-2.5 rounded-lg border border-trade-border bg-trade-bg text-trade-muted font-medium text-sm transition-all hover:bg-trade-border/50 peer-checked:bg-purple-600 peer-checked:text-white peer-checked:border-purple-500 peer-checked:shadow-lg peer-checked:shadow-purple-900/20">
-                                Longterm
-                            </div>
+                            <div className="text-center py-2.5 rounded-lg border border-trade-border bg-trade-bg text-trade-muted font-medium text-sm transition-all hover:bg-trade-border/50 peer-checked:bg-purple-600 peer-checked:text-white peer-checked:border-purple-500">Longterm</div>
                         </label>
                     </div>
                 </div>
 
-                {/* --- 3. Quantity & Price (Unified) --- */}
                 <div className="grid grid-cols-2 gap-4">
-                    {/* Quantity */}
                     <div>
                         <label className="block text-xs font-medium text-trade-muted mb-1 uppercase tracking-wider">Qty</label>
                         <input
@@ -196,28 +217,22 @@ const OrderForm = () => {
                         />
                     </div>
 
-                    {/* Price with Embedded Toggle */}
                     <div>
                         <div className="flex justify-between items-center mb-1">
-                            {/* Dynamic Label */}
                             <label className="block text-xs font-medium text-trade-muted uppercase tracking-wider">
                                 {selectedOrderType === 'MARKET' ? 'Market Price' : 'Price'}
                             </label>
                         </div>
 
                         <div className={`relative flex items-center w-full rounded-lg border transition-all ${selectedOrderType === 'MARKET' ? 'bg-trade-bg/50 border-trade-border cursor-not-allowed' : 'bg-trade-bg border-trade-border focus-within:border-trade-primary'}`}>
-
-                            {/* The Price Input */}
                             <input
                                 type="number"
                                 step="0.05"
                                 {...register('price')}
                                 disabled={selectedOrderType === 'MARKET'}
                                 className="w-full bg-transparent p-3 text-white font-mono outline-none disabled:cursor-not-allowed disabled:text-trade-muted"
-                                placeholder={selectedOrderType === 'MARKET' ? "0.00" : "0.00"}
+                                placeholder="0.00"
                             />
-
-                            {/* The Switch Button inside the tab */}
                             <button
                                 type="button"
                                 onClick={toggleOrderType}
@@ -226,7 +241,6 @@ const OrderForm = () => {
                                         ? 'bg-trade-primary text-white hover:bg-blue-600'
                                         : 'bg-trade-border text-trade-muted hover:text-white hover:bg-white/10'
                                 }`}
-                                title="Click to switch Order Type"
                             >
                                 {selectedOrderType === 'MARKET' ? 'MKT' : 'LMT'}
                             </button>
@@ -234,41 +248,25 @@ const OrderForm = () => {
                     </div>
                 </div>
 
-                {/* --- 4. Buy/Sell Action Buttons (Tabs Style) --- */}
                 <div className="pt-2">
                     <div className="grid grid-cols-2 gap-0 bg-trade-bg rounded-lg p-1 border border-trade-border">
                         <label className="cursor-pointer">
                             <input type="radio" value="BUY" {...register('side')} className="peer sr-only" defaultChecked />
-                            <div className="text-center py-2.5 rounded-md font-bold text-sm transition-all peer-checked:bg-trade-buy peer-checked:text-white peer-checked:shadow-md text-trade-muted hover:text-white">
-                                BUY
-                            </div>
+                            <div className="text-center py-2.5 rounded-md font-bold text-sm transition-all peer-checked:bg-trade-buy peer-checked:text-white peer-checked:shadow-md text-trade-muted hover:text-white">BUY</div>
                         </label>
                         <label className="cursor-pointer">
                             <input type="radio" value="SELL" {...register('side')} className="peer sr-only" />
-                            <div className="text-center py-2.5 rounded-md font-bold text-sm transition-all peer-checked:bg-trade-sell peer-checked:text-white peer-checked:shadow-md text-trade-muted hover:text-white">
-                                SELL
-                            </div>
+                            <div className="text-center py-2.5 rounded-md font-bold text-sm transition-all peer-checked:bg-trade-sell peer-checked:text-white peer-checked:shadow-md text-trade-muted hover:text-white">SELL</div>
                         </label>
                     </div>
                 </div>
 
                 <button
                     type="submit"
-                    disabled={loading}
-                    className={`w-full font-bold py-3.5 rounded-lg transition-all transform active:scale-[0.98] shadow-lg flex justify-center items-center gap-2 mt-2 ${
-                        selectedSide === 'BUY' || !selectedSide
-                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-900/20'
-                            : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white shadow-red-900/20'
-                    } disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
+                    disabled={loading || !activeBrokerId}
+                    className={`w-full font-bold py-3.5 rounded-lg transition-all flex justify-center items-center gap-2 mt-2 text-white ${selectedSide === 'BUY' || !selectedSide ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-red-500 to-red-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                    {loading ? (
-                        <>
-                            <RefreshCw size={18} className="animate-spin" />
-                            Processing...
-                        </>
-                    ) : (
-                        `EXECUTE ${selectedSide || 'BUY'}`
-                    )}
+                    {loading ? <RefreshCw size={18} className="animate-spin" /> : `EXECUTE ${selectedSide || 'BUY'}`}
                 </button>
             </form>
         </div>

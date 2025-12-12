@@ -1,5 +1,7 @@
 package com.myorg.trading.broker.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -7,7 +9,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DhanCredentials {
-    private String clientId;    // Your Dhan Client ID (e.g., 10000001)
-    private String accessToken; // The long JWT token from Dhan Web
+    // This MUST match the JSON key from LinkBrokerModal ("clientId")
+    @JsonProperty("clientId")
+    private String clientId;
+
+    // This MUST match the JSON key from LinkBrokerModal ("accessToken")
+    @JsonProperty("accessToken")
+    private String accessToken;
 }
