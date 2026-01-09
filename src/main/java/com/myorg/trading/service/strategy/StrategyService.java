@@ -39,23 +39,38 @@ public class StrategyService {
 
     @Transactional
     public Strategy updateStrategy(Long id, Strategy updates) {
-        Strategy strategy = getStrategy(id);
+        try {
+            Strategy strategy = getStrategy(id);
 
-        if (updates.getName() != null) strategy.setName(updates.getName());
-        if (updates.getDescription() != null) strategy.setDescription(updates.getDescription());
-        if (updates.getParamsJson() != null) strategy.setParamsJson(updates.getParamsJson());
-        if (updates.getActive() != null) {
-            strategy.setActive(updates.getActive());
+            if (updates.getName() != null) strategy.setName(updates.getName());
+            if (updates.getDescription() != null) strategy.setDescription(updates.getDescription());
+            if (updates.getParamsJson() != null) strategy.setParamsJson(updates.getParamsJson());
 
-            // Start/Stop execution
-            if (updates.getActive()) {
-                strategyExecutor.startStrategy(strategy);
-            } else {
-                strategyExecutor.stopStrategy(strategy.getId());
+            if (updates.getActive() != null) {
+                log.info("Toggling strategy {} to active={}", id, updates.getActive());
+                strategy.setActive(updates.getActive());
+
+                // Start/Stop execution
+                try {
+                    if (updates.getActive()) {
+                        strategyExecutor.startStrategy(strategy);
+                        log.info("Strategy {} started successfully", id);
+                    } else {
+                        strategyExecutor.stopStrategy(strategy.getId());
+                        log.info("Strategy {} stopped successfully", id);
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to toggle strategy executor for {}: {}", id, e.getMessage(), e);
+                    // Don't fail the entire update, just log the error
+                    // The strategy status will still be saved
+                }
             }
-        }
 
-        return strategyRepository.save(strategy);
+            return strategyRepository.save(strategy);
+        } catch (Exception e) {
+            log.error("Strategy update failed for {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to update strategy: " + e.getMessage(), e);
+        }
     }
 
     @Transactional

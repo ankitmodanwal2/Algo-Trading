@@ -125,24 +125,28 @@ const StrategyBuilder = () => {
                 name: template.name,
                 templateId: template.id,
                 description: template.description,
-                params: template.params,
+                paramsJson: JSON.stringify(template.params), // ✅ Must be paramsJson
                 active: false
             });
             toast.success('Strategy created from template!');
             fetchStrategies();
             setActiveTab('my-strategies');
         } catch (err) {
-            toast.error('Failed to create strategy');
+            console.error('Create strategy error:', err);
+            toast.error('Failed to create strategy: ' + (err.response?.data?.message || err.message));
         }
     };
 
     const toggleStrategy = async (id, currentStatus) => {
         try {
-            await api.patch(`/strategies/${id}`, { active: !currentStatus });
+            const response = await api.patch(`/strategies/${id}`, { active: !currentStatus });
+            console.log('Toggle response:', response.data);
             toast.success(currentStatus ? 'Strategy stopped' : 'Strategy started');
             fetchStrategies();
         } catch (err) {
-            toast.error('Failed to toggle strategy');
+            console.error('Toggle error:', err);
+            const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to toggle strategy';
+            toast.error(errorMsg);
         }
     };
 

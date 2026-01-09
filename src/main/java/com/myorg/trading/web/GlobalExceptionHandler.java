@@ -11,20 +11,13 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Centralized exception handling for REST controllers.
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // --- CRITICAL FIX: Trap Dhan Errors & Prevent Logout Loop ---
     @ExceptionHandler(WebClientResponseException.class)
     public ResponseEntity<?> handleBrokerError(WebClientResponseException ex) {
-        // 1. Log the REAL error from Dhan (e.g. "Token expired")
         System.err.println(">>> BROKER API ERROR: " + ex.getResponseBodyAsString());
 
-        // 2. If Dhan says 401 (Unauthorized), send 400 (Bad Request) to Frontend.
-        //    This prevents the Frontend from thinking *App Login* is expired.
         if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of(
@@ -33,7 +26,6 @@ public class GlobalExceptionHandler {
                     ));
         }
 
-        // 3. For other errors, return 500
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of(
                         "error", "broker_error",
@@ -44,23 +36,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "bad_request", "message", ex.getMessage()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<?> handleAccessDenied(AccessDeniedException ex) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "access_denied", "message", ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "access_denied", "message", ex.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneric(Exception ex) {
-        ex.printStackTrace(); // Print stack trace to console for debugging
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "internal_error", "message", ex.getMessage()));
+        ex.printStackTrace();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                        "error", "internal_error",
+                        "message", ex.getMessage() != null ? ex.getMessage() : "An unexpected error occurred"
+                ));
     }
 
     @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
     public ResponseEntity<?> handleAuthException(Exception ex) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized", "message", ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "unauthorized", "message", ex.getMessage()));
     }
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)

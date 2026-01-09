@@ -34,6 +34,7 @@ public class StrategyExecutor {
         this.brokerRegistry = brokerRegistry;
         this.brokerAccountRepository = brokerAccountRepository;
         this.objectMapper = objectMapper;
+        log.info("✅ StrategyExecutor initialized successfully");
     }
 
     public void startStrategy(Strategy strategy) {
@@ -75,6 +76,12 @@ public class StrategyExecutor {
 
     private void executeStrategy(Strategy strategy) {
         try {
+            // ✅ Add null check
+            if (strategy.getParamsJson() == null || strategy.getParamsJson().trim().isEmpty()) {
+                log.error("❌ Strategy {} has no parameters configured", strategy.getId());
+                return; // Skip execution instead of crashing
+            }
+
             JsonNode params = objectMapper.readTree(strategy.getParamsJson());
             String templateId = strategy.getTemplateId();
 
@@ -97,6 +104,9 @@ public class StrategyExecutor {
                 case "breakout":
                     executeBreakout(strategy, params, client, account);
                     break;
+                case "macd_momentum": // ✅ Add this case
+                    executeMACDMomentum(strategy, params, client, account);
+                    break;
                 case "opening_range":
                     executeOpeningRange(strategy, params, client, account);
                     break;
@@ -106,6 +116,14 @@ public class StrategyExecutor {
         } catch (Exception e) {
             log.error("Failed to execute strategy {}: {}", strategy.getId(), e.getMessage(), e);
         }
+    }
+    private void executeMACDMomentum(Strategy strategy, JsonNode params,
+                                     BrokerClient client, BrokerAccount account) {
+        log.info("Executing MACD Momentum for strategy {}", strategy.getId());
+
+        // TODO: Calculate MACD
+        // TODO: Check for MACD line crossing signal line
+        // TODO: Place orders if conditions met
     }
 
     private void executeSMACrossover(Strategy strategy, JsonNode params,
